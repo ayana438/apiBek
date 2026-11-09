@@ -208,13 +208,11 @@ public class PostKgApiController {
             double lon,
             double speedKmh,
             int heading,
-            double accuracyM,
-            int battery,
-            String networkType
+            double accuracyM
     ) {}
 
     /**
-     * Обновляет GPS-координаты, скорость и батарею отдельно для конкретного аккаунта курьера.
+     * Обновляет GPS-координаты и скорость отдельно для конкретного аккаунта курьера.
      */
     @PostMapping({"/courier-app/{id}/gps", "/couriers/{id}/telemetry"})
     @Transactional
@@ -229,8 +227,6 @@ public class PostKgApiController {
                     c.setSpeedKmh(payload.speedKmh());
                     c.setHeading(payload.heading());
                     c.setAccuracyM(payload.accuracyM());
-                    c.setBattery(payload.battery());
-                    c.setNetworkType(payload.networkType() != null ? payload.networkType() : "4G LTE");
                     c.setLastSignalSec(1);
                     c.setShiftDistanceKm(Math.round((c.getShiftDistanceKm() + 0.15) * 10.0) / 10.0);
                     c.setUpdatedAt(Instant.now());

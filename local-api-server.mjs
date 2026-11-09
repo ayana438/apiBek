@@ -31,6 +31,34 @@ function nowBishkek() {
   return new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
+// Мониторинг статусов курьеров по ТЗ POST.KG:
+// "moving" (В движении), "at_point" (На точке), "idle" (Простой), "problem" (SOS/Проблема), "offline" (Оффлайн)
+// Если нет сигнала GPS >= 10 минут (600 секунд) -> статус автоматически переключается в "offline"
+function refreshCourierStatuses(couriers) {
+  const now = Date.now();
+  for (const c of couriers) {
+    if (!c.lastSignalTimestamp) {
+      if (c.state === 'offline') {
+        c.lastSignalTimestamp = now - 650 * 1000;
+      } else {
+        const sec = c.lastSignalSec || 5;
+        c.lastSignalTimestamp = now - sec * 1000;
+      }
+    }
+    const diffSec = Math.floor((now - c.lastSignalTimestamp) / 1000);
+    c.lastSignalSec = diffSec;
+
+    // Если нет сигнала 10 минут (>= 600 секунд) — оффлайн
+    if (diffSec >= 600) {
+      c.state = 'offline';
+      c.speedKmh = 0;
+    }
+
+    // Проверяем занятость аккаунта устройством
+    c.isOccupied = Boolean(c.activeDeviceId);
+  }
+}
+
 function sendJson(res, status, data) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -63,8 +91,9 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const p = url.pathname;
 
-  // 1. Все курьеры
+  // 1. Все курьеры (с динамическим расчетом 10 минут отсутствия сигнала -> offline и флагом isOccupied)
   if (req.method === 'GET' && p === '/api/v1/couriers') {
+    refreshCourierStatuses(db.couriers);
     return sendJson(res, 200, db.couriers);
   }
 
@@ -100,6 +129,7 @@ const server = http.createServer(async (req, res) => {
   // 4. Персональная синхронизация аккаунта курьера: GET /api/v1/courier-app/:courierId/my-account
   const matchMyAccount = p.match(/^\/api\/v1\/courier-app\/([^/]+)\/my-account$/);
   if (req.method === 'GET' && matchMyAccount) {
+    refreshCourierStatuses(db.couriers);
     const courierId = matchMyAccount[1];
     const courier = db.couriers.find((c) => c.id === courierId);
     if (!courier) return sendJson(res, 404, { error: 'Courier not found' });
@@ -107,7 +137,52 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { courierAccount: courier, myOrders, syncedAtBishkek: nowBishkek() });
   }
 
-  // 5. Обновление персонального GPS курьера: POST /api/v1/courier-app/:courierId/gps
+  // 4.1 Вход курьера в аккаунт с проверкой на занятость: POST /api/v1/courier-app/:courierId/login
+  const matchLogin = p.match(/^\/api\/v1\/courier-app\/([^/]+)\/login$/);
+  if (req.method === 'POST' && matchLogin) {
+    const courierId = matchLogin[1];
+    const body = await readBody(req);
+    const deviceId = body.deviceId || 'UNKNOWN';
+    const deviceModel = body.deviceModel || 'Android Device';
+    const force = Boolean(body.force);
+
+    const courier = db.couriers.find((c) => c.id === courierId);
+    if (!courier) return sendJson(res, 404, { success: false, error: 'Курьер не найден' });
+
+    // Проверяем, занят ли аккаунт другим устройством
+    if (courier.activeDeviceId && courier.activeDeviceId !== deviceId && !force) {
+      return sendJson(res, 409, {
+        success: false,
+        occupied: true,
+        message: `Аккаунт ${courierId} уже занят! В него выполнен вход на устройстве ${courier.activeDeviceModel || 'другого курьера'}. Одновременный вход запрещён.`,
+        occupiedBy: courier.activeDeviceModel || 'Android'
+      });
+    }
+
+    courier.activeDeviceId = deviceId;
+    courier.activeDeviceModel = deviceModel;
+    courier.isOccupied = true;
+    courier.lastSignalTimestamp = Date.now();
+    courier.lastSignalSec = 1;
+    saveDb(db);
+    return sendJson(res, 200, { success: true, courier });
+  }
+
+  // 4.2 Выход из аккаунта (освобождение экипажа): POST /api/v1/courier-app/:courierId/logout
+  const matchLogout = p.match(/^\/api\/v1\/courier-app\/([^/]+)\/logout$/);
+  if (req.method === 'POST' && matchLogout) {
+    const courierId = matchLogout[1];
+    const courier = db.couriers.find((c) => c.id === courierId);
+    if (courier) {
+      courier.activeDeviceId = null;
+      courier.activeDeviceModel = null;
+      courier.isOccupied = false;
+      saveDb(db);
+    }
+    return sendJson(res, 200, { success: true });
+  }
+
+  // 5. Обновление персонального GPS и статуса курьера: POST /api/v1/courier-app/:courierId/gps
   const matchGps = p.match(/^\/api\/v1\/(?:courier-app|couriers)\/([^/]+)\/(?:gps|telemetry)$/);
   if (req.method === 'POST' && matchGps) {
     const courierId = matchGps[1];
@@ -118,6 +193,25 @@ const server = http.createServer(async (req, res) => {
     courier.lon = Number(payload.lon ?? courier.lon);
     courier.speedKmh = Number(payload.speedKmh ?? courier.speedKmh);
     courier.battery = Number(payload.battery ?? courier.battery);
+    if (payload.state) courier.state = payload.state;
+    if (payload.problemReason !== undefined) courier.problemReason = payload.problemReason;
+    if (payload.idleMinutes !== undefined) courier.idleMinutes = Number(payload.idleMinutes);
+    courier.lastSignalTimestamp = Date.now();
+    courier.lastSignalSec = 1;
+    saveDb(db);
+    return sendJson(res, 200, courier);
+  }
+
+  // 5.1 Экстренный SOS сигнал: POST /api/v1/courier-app/:courierId/sos или /api/v1/couriers/:courierId/sos
+  const matchSos = p.match(/^\/api\/v1\/(?:courier-app|couriers)\/([^/]+)\/sos$/);
+  if (req.method === 'POST' && matchSos) {
+    const courierId = matchSos[1];
+    const payload = await readBody(req);
+    const courier = db.couriers.find((c) => c.id === courierId);
+    if (!courier) return sendJson(res, 404, { error: 'Courier not found' });
+    courier.state = payload.state || 'problem';
+    courier.problemReason = payload.reason || payload.problemReason || 'SOS сигнал курьера';
+    courier.lastSignalTimestamp = Date.now();
     courier.lastSignalSec = 1;
     saveDb(db);
     return sendJson(res, 200, courier);
@@ -196,4 +290,3 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`📦 Файл базы данных: ${DB_FILE}`);
   console.log(`================================================================`);
 });
-

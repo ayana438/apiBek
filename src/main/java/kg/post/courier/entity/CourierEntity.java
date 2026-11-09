@@ -56,12 +56,6 @@ public class CourierEntity {
     @Column(name = "device_id", length = 128, unique = true)
     private String deviceId;
 
-    @Column(name = "battery", nullable = false)
-    private Integer battery = 100;
-
-    @Column(name = "network_type", length = 24)
-    private String networkType = "4G LTE";
-
     @Column(name = "last_signal_sec", nullable = false)
     private Integer lastSignalSec = 1;
 
@@ -159,12 +153,6 @@ public class CourierEntity {
 
     public String getDeviceId() { return deviceId; }
     public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
-
-    public Integer getBattery() { return battery; }
-    public void setBattery(Integer battery) { this.battery = battery; }
-
-    public String getNetworkType() { return networkType; }
-    public void setNetworkType(String networkType) { this.networkType = networkType; }
 
     public Integer getLastSignalSec() { return lastSignalSec; }
     public void setLastSignalSec(Integer lastSignalSec) { this.lastSignalSec = lastSignalSec; }
