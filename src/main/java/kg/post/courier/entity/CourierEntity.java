@@ -52,9 +52,12 @@ public class CourierEntity {
     @Column(name = "vehicle_type", length = 32, nullable = false)
     private String vehicleType = "Легковой авто";
 
-    // Привязанное устройство курьера
+    // Привязанное устройство курьера и Firebase Push-токен
     @Column(name = "device_id", length = 128, unique = true)
     private String deviceId;
+
+    @Column(name = "fcm_token", length = 512)
+    private String fcmToken;
 
     @Column(name = "last_signal_sec", nullable = false)
     private Integer lastSignalSec = 1;
@@ -153,6 +156,9 @@ public class CourierEntity {
 
     public String getDeviceId() { return deviceId; }
     public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
+
+    public String getFcmToken() { return fcmToken; }
+    public void setFcmToken(String fcmToken) { this.fcmToken = fcmToken; }
 
     public Integer getLastSignalSec() { return lastSignalSec; }
     public void setLastSignalSec(Integer lastSignalSec) { this.lastSignalSec = lastSignalSec; }

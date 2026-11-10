@@ -34,6 +34,19 @@ public class PostKgApiController {
     private static final DateTimeFormatter BISHKEK_TIME_FMT =
             DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.of("Asia/Bishkek"));
 
+    private final List<Map<String, Object>> broadcastNotifications = Collections.synchronizedList(new ArrayList<>(List.of(
+            Map.of(
+                    "id", "FCM-1001",
+                    "title", "Обновление приложения POST.KG",
+                    "body", "Вышла новая версия мобильного приложения курьера. Пожалуйста, обновите перед выходом на смену.",
+                    "category", "APP_UPDATE",
+                    "topic", "all_couriers",
+                    "sentBy", "Администратор POST.KG",
+                    "sentAt", "08:30",
+                    "channel", "Firebase Cloud Messaging (FCM)"
+            )
+    )));
+
     public PostKgApiController(
             CourierRepository courierRepository,
             OrderRepository orderRepository,
@@ -197,6 +210,7 @@ public class PostKgApiController {
                     return ResponseEntity.ok(Map.of(
                             "courierAccount", courier,
                             "myOrders", myOrders,
+                            "notifications", broadcastNotifications,
                             "syncedAtBishkek", nowBishkekTime()
                     ));
                 })
@@ -264,8 +278,17 @@ public class PostKgApiController {
         double dLat = payload.lat() != null ? payload.lat() : order.getLat();
         double dLon = payload.lon() != null ? payload.lon() : order.getLon();
 
+        String normalizedPhoto = payload.photoDataUrl();
+        if (normalizedPhoto != null && !normalizedPhoto.isBlank()) {
+            String trimmed = normalizedPhoto.trim();
+            if (!trimmed.startsWith("data:image/") && !trimmed.startsWith("http://") && !trimmed.startsWith("https://")
+                    && !trimmed.startsWith("content://") && !trimmed.startsWith("file://")) {
+                normalizedPhoto = "data:image/jpeg;base64," + trimmed.replaceAll("\\s+", "");
+            }
+        }
+
         order.setStatus("DELIVERED");
-        order.setProofPhotoUrl(payload.photoDataUrl());
+        order.setProofPhotoUrl(normalizedPhoto);
         order.setProofCode(payload.smsCode());
         order.setProofSignature(payload.signature() != null ? payload.signature() : "Подпись получателя получена");
         order.setDeliveredAt(timeStr);
@@ -486,6 +509,62 @@ public class PostKgApiController {
                         });
                     }
                     return ResponseEntity.ok(saved);
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    // ========================================================================
+    // 5. ОБЩИЕ PUSH-УВЕДОМЛЕНИЯ КУРЬЕРАМ ЧЕРЕЗ FIREBASE (FCM TOPIC / BROADCAST)
+    // ========================================================================
+
+    public record BroadcastNotificationPayload(
+            String title,
+            String body,
+            String category,
+            String topic,
+            String sentBy
+    ) {}
+
+    @GetMapping("/notifications")
+    public List<Map<String, Object>> getAllBroadcastNotifications() {
+        return broadcastNotifications;
+    }
+
+    @PostMapping("/notifications/broadcast")
+    public ResponseEntity<Map<String, Object>> sendFirebaseBroadcastNotification(
+            @RequestBody BroadcastNotificationPayload payload
+    ) {
+        String id = "FCM-" + (1001 + broadcastNotifications.size());
+        String topic = payload.topic() != null && !payload.topic().isBlank() ? payload.topic() : "all_couriers";
+        String category = payload.category() != null && !payload.category().isBlank() ? payload.category() : "ANNOUNCEMENT";
+        String sentBy = payload.sentBy() != null && !payload.sentBy().isBlank() ? payload.sentBy() : "Диспетчер POST.KG";
+
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", id);
+        item.put("title", payload.title());
+        item.put("body", payload.body());
+        item.put("category", category);
+        item.put("topic", topic);
+        item.put("sentBy", sentBy);
+        item.put("sentAt", nowBishkekTime());
+        item.put("channel", "Firebase Cloud Messaging (Topic: /topics/" + topic + ")");
+
+        broadcastNotifications.add(0, item);
+        return ResponseEntity.ok(item);
+    }
+
+    @PostMapping("/couriers/{id}/fcm-token")
+    @Transactional
+    public ResponseEntity<CourierEntity> updateCourierFcmToken(
+            @PathVariable String id,
+            @RequestBody Map<String, String> body
+    ) {
+        String token = body.get("fcmToken");
+        return courierRepository.findById(id)
+                .map(c -> {
+                    c.setFcmToken(token);
+                    c.setUpdatedAt(Instant.now());
+                    return ResponseEntity.ok(courierRepository.save(c));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }
