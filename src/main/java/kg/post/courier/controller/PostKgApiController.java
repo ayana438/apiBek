@@ -360,7 +360,7 @@ public class PostKgApiController {
                 if (courier.getVehiclePlate() != null && !courier.getVehiclePlate().isBlank()) target.setVehiclePlate(courier.getVehiclePlate());
                 if (courier.getMaxOrdersLimit() != null) target.setMaxOrdersLimit(courier.getMaxOrdersLimit());
                 if (courier.getNotes() != null) target.setNotes(courier.getNotes());
-                if (courier.getPhotoUrl() != null && !courier.getPhotoUrl().isBlank()) target.setPhotoUrl(courier.getPhotoUrl());
+                if (courier.getPhotoUrl() != null) target.setPhotoUrl(courier.getPhotoUrl().trim());
                 if (courier.getState() != null) target.setState(courier.getState());
                 if (courier.getProblemReason() != null) target.setProblemReason(courier.getProblemReason());
                 if (courier.getOnShift() != null) target.setOnShift(courier.getOnShift());
