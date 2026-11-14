@@ -60,5 +60,7 @@ public class OrderStatusHistoryEntity {
     public void setCoords(String coords) { this.coords = coords; }
     public String getComment() { return comment; }
     public void setComment(String comment) { this.comment = comment; }
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }
 

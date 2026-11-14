@@ -32,7 +32,7 @@ public class PostKgApiController {
     private final TransferRepository transferRepository;
 
     private static final DateTimeFormatter BISHKEK_TIME_FMT =
-            DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.of("Asia/Bishkek"));
+            DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm").withZone(ZoneId.of("Asia/Bishkek"));
 
     private final List<Map<String, Object>> broadcastNotifications = Collections.synchronizedList(new ArrayList<>(List.of(
             Map.of(
@@ -93,19 +93,16 @@ public class PostKgApiController {
         item.put("courierId", o.getCourierId());
         item.put("routeSeq", o.getRouteSeq());
         item.put("smsVerificationCode", o.getSmsVerificationCode());
-        if (o.getProofPhotoUrl() != null || o.getProofCode() != null) {
-            Map<String, Object> proof = new LinkedHashMap<>();
-            proof.put("type", "Фотоотчёт + Код + Подпись");
-            proof.put("photoUrl", o.getProofPhotoUrl());
-            proof.put("signature", o.getProofSignature());
-            proof.put("code", o.getProofCode());
-            proof.put("at", o.getDeliveredAt());
-            proof.put("lat", o.getDeliveredLat());
-            proof.put("lon", o.getDeliveredLon());
-            item.put("proof", proof);
-        } else {
-            item.put("proof", null);
-        }
+        item.put("proof", o.getProofPhotoUrl() != null || o.getProofCode() != null ? Map.of(
+                "type", "Фотоотчёт + Код + Подпись",
+                "photoUrl", o.getProofPhotoUrl() != null ? o.getProofPhotoUrl() : "",
+                "signature", o.getProofSignature() != null ? o.getProofSignature() : "",
+                "code", o.getProofCode() != null ? o.getProofCode() : "",
+                "at", o.getDeliveredAt() != null ? o.getDeliveredAt() : "",
+                "lat", o.getDeliveredLat() != null ? o.getDeliveredLat() : o.getLat(),
+                "lon", o.getDeliveredLon() != null ? o.getDeliveredLon() : o.getLon()
+        ) : null);
+        item.put("createdAt", o.getCreatedAt() != null ? o.getCreatedAt().toString() : null);
         item.put("history", history);
         return item;
     }
@@ -349,11 +346,32 @@ public class PostKgApiController {
             long nextNum = courierRepository.count() + 1;
             courier.setId(String.format("CR-%03d", nextNum));
         }
-        if (courier.getDeviceId() == null || courier.getDeviceId().isBlank()) {
-            courier.setDeviceId("AND-POSTKG-" + (88000 + courierRepository.count() + 1));
+
+        CourierEntity target = courier;
+        if (courier.getId() != null) {
+            Optional<CourierEntity> existingOpt = courierRepository.findById(courier.getId());
+            if (existingOpt.isPresent()) {
+                target = existingOpt.get();
+                if (courier.getName() != null && !courier.getName().isBlank()) target.setName(courier.getName());
+                if (courier.getPhone() != null && !courier.getPhone().isBlank()) target.setPhone(courier.getPhone());
+                if (courier.getVehicleType() != null && !courier.getVehicleType().isBlank()) target.setVehicleType(courier.getVehicleType());
+                if (courier.getVehicleMake() != null && !courier.getVehicleMake().isBlank()) target.setVehicleMake(courier.getVehicleMake());
+                if (courier.getVehicleColor() != null && !courier.getVehicleColor().isBlank()) target.setVehicleColor(courier.getVehicleColor());
+                if (courier.getVehiclePlate() != null && !courier.getVehiclePlate().isBlank()) target.setVehiclePlate(courier.getVehiclePlate());
+                if (courier.getMaxOrdersLimit() != null) target.setMaxOrdersLimit(courier.getMaxOrdersLimit());
+                if (courier.getNotes() != null) target.setNotes(courier.getNotes());
+                if (courier.getPhotoUrl() != null && !courier.getPhotoUrl().isBlank()) target.setPhotoUrl(courier.getPhotoUrl());
+                if (courier.getState() != null) target.setState(courier.getState());
+                if (courier.getProblemReason() != null) target.setProblemReason(courier.getProblemReason());
+                if (courier.getOnShift() != null) target.setOnShift(courier.getOnShift());
+            }
         }
-        courier.setUpdatedAt(Instant.now());
-        CourierEntity saved = courierRepository.save(courier);
+
+        if (target.getDeviceId() == null || target.getDeviceId().isBlank()) {
+            target.setDeviceId("AND-POSTKG-" + (88000 + courierRepository.count() + 1));
+        }
+        target.setUpdatedAt(Instant.now());
+        CourierEntity saved = courierRepository.save(target);
         return ResponseEntity.ok(saved);
     }
 
